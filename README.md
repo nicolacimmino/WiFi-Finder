@@ -1,4 +1,6 @@
 
+**This project is currently on hold. It seems the current firmaware implementation of the ESP8266 modules stuggles with the implementaton of SSIDs listing. It often hangs or returns inconsistent results**
+
 An open WiFi finder based on the ESP8266 WiFi chip. The device scans all available networks and when it finds an open one it attempts to join it and open a connection to a remote server. In this way only truly open (no sign-in page) networks are identified. The SSIDs of the open networks are finally shown on display.
 
 The picture below shows first prototype of the finder:
