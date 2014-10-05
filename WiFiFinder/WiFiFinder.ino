@@ -44,123 +44,160 @@
 // Display controller.
 Adafruit_SSD1306 display(OLED_MOSI, OLED_CLK, OLED_DC, OLED_RESET, OLED_CS);
 
-const char AT_JOIN_AP[] =  "AT+CWJAP";
-const char AT_LIST_AP[] =  "AT+CWLAP";
-
-// Found open SSIDs, liited to 4 for now.
-String ssids[] = { "", "", "", "" };
+char rxBuffer[255];
 
 ////////////////////////////////////////////////////////////////////////////////
 // Application setup after reset.
 //
 void setup()
 {
+   // Power up display.
+  pinMode(OLED_VCC, OUTPUT);
+  digitalWrite(OLED_VCC,HIGH);
+
+  // generate the high voltage from the 3.3v line internally.
+  display.begin(SSD1306_SWITCHCAPVCC);
+ 
   Serial.begin(115200);
+  
+  display.clearDisplay();   // clears the screen and buffer    
+  display.setTextSize(1);
+  display.setTextColor(WHITE);
+  display.setCursor(0,0);
+ 
+  Serial.println("AT+RST"); // restet and test if module is redy
+  delay(1000); 
+  if(!Serial.find("ready")) {
+    display.println("ESP8266 doesn't respond.");
+    display.display();
+    
+     // Change all lines connected to display to inputs, if we
+    //  ground VCC then current will flow trough the clamps
+    //  inside the display and take power also when the device is off.
+    for(int p=2;p<=6;p++)
+      pinMode(p, INPUT);
+      
+    // Power down the processor. To start a new scan user will reset the MCU by pressing
+    //  the onboard reset button.
+    set_sleep_mode(SLEEP_MODE_PWR_DOWN);
+    sleep_enable();
+    sleep_cpu(); 
+  }
+  else
+  {
+    Serial.println("AT+CWMODE=3");
+    delay(1000);
+    display.println("Scanning....");
+    display.display();
+    delay(5000);
+  }    
 }
+
+char ssid[32];
 
 ////////////////////////////////////////////////////////////////////////////////
 // Application entry point after setup() has executed.
 //
 void loop()
 {
+   
   
-  // Power up display.
-  pinMode(OLED_VCC, OUTPUT);
-  digitalWrite(OLED_VCC,HIGH);
-
-  // generate the high voltage from the 3.3v line internally.
-  display.begin(SSD1306_SWITCHCAPVCC);
+  Serial.readBytes(rxBuffer, 253);
+  for(int ix=0;ix<254;ix++)
+  {
+    rxBuffer[ix]=0;  
+  }
+  Serial.setTimeout(15000);
+  Serial.println("AT+CWLAP"); 
+  //readResponse();
+  
+  Serial.readBytes(rxBuffer, 254);
+  
   display.clearDisplay();   // clears the screen and buffer    
   display.setTextSize(1);
   display.setTextColor(WHITE);
-  display.setCursor(0,40);
-  display.print("Scanning...");
+  display.setCursor(0,0);
+  display.print(rxBuffer);
   display.display();
-  delay(1000);
+  delay(2000);
+  return;
   
-  Serial.println(AT_LIST_AP);  
- 
-  byte ssidIx = 0;
-  String response = "none";
-  while(response != "")
+  char* responseStart=strstr(rxBuffer,"+CWLAP");
+  if(responseStart==0)
   {
-    response = readOneResponseLine();
-    
-    // Responses are similar to: +CWLAP:(4,"AP_SSID",-48)
-    if(response.indexOf("+CWLAP")==0)
+    return;  
+  }
+  
+  bool atLeastOneOpenFound = false;
+  while(true)
+  {
+    responseStart=strstr(responseStart+1,"+CWLAP");
+    if(responseStart!=0)
     {
-      char type = response.charAt(9);
-      String ssid = response.substring(12, response.indexOf("\"", 13));
-      
-      // Store only open hotspots (type 0)
-      if(type=='0')
+      char type = *(responseStart+8);
+      *strstr(responseStart+11, "\"")=0;
+      strcpy(ssid, responseStart+11);
+      //if(type=='0')
       {
-        ssids[ssidIx]=ssid;
-        ssidIx++;
+        /*Serial.print("AT+CWJAP=\"");
+        Serial.print(ssid);
+        Serial.println("\",\"\"");*/
+        display.print(type);
+        display.print("-");
+        display.println(ssid);
+        display.display();
+        //delay(2000);
+        atLeastOneOpenFound=true;
+      }
+      while(*responseStart!=0)
+      {
+        responseStart++;
+        if(responseStart-rxBuffer>254)
+        {
+          break;
+        } 
+      }
+    }
+    else
+    {
+      break;  
+    }
+  }
+  display.display();
+  
+  /*
+  if(!atLeastOneOpenFound)
+  {
+    display.println("No open networks found!"); 
+    display.display();
+  }
+  
+  delay(3000);
+  */
+}
+
+// Reads until the end of response.
+// If timmeout expires an empty string is returned.
+byte readResponse()
+{
+  
+  //long startTime = millis();
+  byte ix=0;
+  //rxBuffer[0]=0;
+  //while(millis()-startTime<5000)
+  {
+    while(strstr(rxBuffer,"OK")==0)
+    {
+      if(Serial.available()) 
+      {
+        rxBuffer[ix]=(char)Serial.read();
+        ix++;
+        if(ix>253) break;
       }
     }
   }
- 
-  display.clearDisplay();   // clears the screen and buffer    
-  display.setTextSize(1);
-  display.setCursor(0,0);
-  
-  // Go through each found hotspot and see if it can be joined. 
-  for(int ix=0;ix<ssidIx;ix++)
-  {
-    Serial.print(AT_JOIN_AP);
-    Serial.print("=");
-    Serial.println(ssids[ix]);
-    display.println(ssids[ix]);  
-  }
-  
-  // No open hotspot found.
-  if(ssidIx==0)
-  {
-    display.println("No Open Networks");  
-  }
-  display.println(ssidIx);
-  display.display();
-  
-  delay(2000);
-   
-  // Change all lines connected to display to inputs, if we
-  //  ground VCC then current will flow trough the clamps
-  //  inside the display and take power also when the device is off.
-  for(int p=2;p<=6;p++)
-    pinMode(p, INPUT);
-    
-  // Power down the processor. To start a new scan user will reset the MCU by pressing
-  //  the onboard reset button.
-  set_sleep_mode(SLEEP_MODE_PWR_DOWN);
-  sleep_enable();
-  sleep_cpu(); 
-  
-}
-
-// Reads until a new line is received.
-// If timmeout expires an empty string is returned.
-String readOneResponseLine()
-{
-  String response = "";
-  long startTime = millis();
-  while(millis()-startTime<10000)
-  {
-    while (Serial.available() > 0) 
-    {
-       if(Serial.peek() == 13)
-       {
-         Serial.read();
-         if(Serial.peek() == 10)
-         {
-           Serial.read();  
-         }   
-         return response;  
-       }
-       response += (char)Serial.read();
-    }
-  }
-  return "";
+  rxBuffer[ix]=0;
+  return ix;
 }
 
 
